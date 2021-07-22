@@ -6,7 +6,9 @@ import Browser.Navigation as Nav
 import Html exposing (..)
 import Html.Attributes as A exposing (checked, class, classList, href, type_, value)
 import Html.Events as E
-import Json.Decode as Dec
+import Json.Decode as Dec exposing (Decoder)
+import Json.Encode as Enc exposing (Value)
+import Ports
 import Task
 import Url
 
@@ -70,9 +72,17 @@ init flags url key =
       , inputText = ""
       , editingTodo = Nothing
       , todos =
-            case flags of
-                _ ->
+            case flags.todos of
+                Nothing ->
                     []
+
+                Just str ->
+                    case Dec.decodeString todosDecoder str of
+                        Err _ ->
+                            []
+
+                        Ok todos ->
+                            todos
       , filter = urlToFilter url
       }
     , Cmd.none
@@ -93,6 +103,27 @@ type Msg
     | InputFocused (Result Browser.Dom.Error ())
     | ClearCompletedTodos
     | MarkAllAsCompleted Bool
+
+
+withStorage : (msg -> Model -> ( Model, Cmd msg )) -> (msg -> Model -> ( Model, Cmd msg ))
+withStorage update_ msg model =
+    let
+        ( newModel, cmd ) =
+            update_ msg model
+    in
+    ( newModel
+    , Cmd.batch
+        [ cmd
+        , if model.todos /= newModel.todos then
+            newModel.todos
+                |> todosEncoder
+                |> Enc.encode 2
+                |> Ports.serializeTodos
+
+          else
+            Cmd.none
+        ]
+    )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -375,6 +406,33 @@ view model =
     }
 
 
+todoItemEncoder : TodoItem -> Value
+todoItemEncoder item =
+    Enc.object
+        [ ( "id", Enc.int item.id )
+        , ( "text", Enc.string item.text )
+        , ( "completed", Enc.bool item.completed )
+        ]
+
+
+todosEncoder : List TodoItem -> Value
+todosEncoder =
+    Enc.list todoItemEncoder
+
+
+todoItemDecoder : Decoder TodoItem
+todoItemDecoder =
+    Dec.map3 TodoItem
+        (Dec.field "id" Dec.int)
+        (Dec.field "text" Dec.string)
+        (Dec.field "completed" Dec.bool)
+
+
+todosDecoder : Decoder (List TodoItem)
+todosDecoder =
+    Dec.list todoItemDecoder
+
+
 onEnter : msg -> Attribute msg
 onEnter msg =
     let
@@ -404,7 +462,7 @@ main =
     Browser.application
         { init = init
         , view = view
-        , update = update
+        , update = withStorage update
         , subscriptions = subscriptions
         , onUrlRequest = UrlRequested
         , onUrlChange = UrlChanged

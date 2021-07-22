@@ -8,3 +8,7 @@ const app = Elm.Main.init({
     todos: localStorage.getItem(STORAGE_NS),
   }
 })
+
+app.ports.serializeTodos.subscribe((value) => {
+  localStorage.setItem(STORAGE_NS, value)
+})
