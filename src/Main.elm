@@ -1,11 +1,13 @@
 module Main exposing (..)
 
 import Browser
+import Browser.Dom
 import Browser.Navigation as Nav
 import Html exposing (..)
 import Html.Attributes as A exposing (checked, class, classList, href, type_, value)
 import Html.Events as E
 import Json.Decode as Dec
+import Task
 import Url
 
 
@@ -27,22 +29,11 @@ type alias Flags =
     }
 
 
-main : Program Flags Model Msg
-main =
-    Browser.application
-        { init = init
-        , view = view
-        , update = update
-        , subscriptions = subscriptions
-        , onUrlRequest = UrlRequested
-        , onUrlChange = UrlChanged
-        }
-
-
 type alias Model =
     { key : Nav.Key
     , inputText : String
     , filter : Filter
+    , editingTodo : Maybe { id : Int, text : String }
     , todos : List TodoItem
     }
 
@@ -64,6 +55,7 @@ init : Flags -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
 init flags url key =
     ( { key = key
       , inputText = ""
+      , editingTodo = Nothing
       , todos =
             case flags of
                 _ ->
@@ -79,8 +71,13 @@ type Msg
     | UrlChanged Url.Url
     | InputText String
     | SubmittedTodo
-    | DeletedTodo { id : Int }
-    | ToggledTodo { id : Int }
+    | DeletedTodo TodoItem
+    | ToggledTodo TodoItem
+    | ClickedEditTodo TodoItem
+    | EditingTodoInput String
+    | BlurredEditingInput
+    | SavedEditingInput
+    | InputFocused (Result Browser.Dom.Error ())
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -145,6 +142,51 @@ update msg model =
             , Cmd.none
             )
 
+        ClickedEditTodo item ->
+            ( { model | editingTodo = Just { id = item.id, text = item.text } }
+            , Task.attempt InputFocused <| Browser.Dom.focus (getEditingInputId item)
+            )
+
+        EditingTodoInput value ->
+            ( case model.editingTodo of
+                Nothing ->
+                    model
+
+                Just editingTodo ->
+                    { model | editingTodo = Just { editingTodo | text = value } }
+            , Cmd.none
+            )
+
+        BlurredEditingInput ->
+            ( { model | editingTodo = Nothing }
+            , Cmd.none
+            )
+
+        SavedEditingInput ->
+            ( case model.editingTodo of
+                Nothing ->
+                    model
+
+                Just editingTodo ->
+                    { model
+                        | editingTodo = Nothing
+                        , todos =
+                            model.todos
+                                |> List.map
+                                    (\todo ->
+                                        if todo.id /= editingTodo.id then
+                                            todo
+
+                                        else
+                                            { todo | text = editingTodo.text }
+                                    )
+                    }
+            , Cmd.none
+            )
+
+        InputFocused _ ->
+            ( model, Cmd.none )
+
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
@@ -171,25 +213,55 @@ viewHeader inputText =
         ]
 
 
-viewTodoItem : TodoItem -> Html Msg
-viewTodoItem item =
-    li [ classList [ ( "completed", item.completed ) ] ]
+getEditingInputId : TodoItem -> String
+getEditingInputId { id } =
+    "item-" ++ String.fromInt id
+
+
+viewTodoItem : Maybe { id : Int, text : String } -> TodoItem -> Html Msg
+viewTodoItem mEditingTodo item =
+    let
+        editing =
+            case mEditingTodo of
+                Just { id } ->
+                    id == item.id
+
+                Nothing ->
+                    False
+
+        editingInputValue =
+            case mEditingTodo of
+                Just { text } ->
+                    text
+
+                Nothing ->
+                    ""
+    in
+    li [ classList [ ( "completed", item.completed ), ( "editing", editing ) ] ]
         [ div [ class "view" ]
             [ input
                 [ checked item.completed
                 , class "toggle"
                 , type_ "checkbox"
-                , E.onCheck (\_ -> ToggledTodo { id = item.id })
+                , E.onCheck (\_ -> ToggledTodo item)
                 ]
                 []
-            , label [] [ text item.text ]
+            , label [ E.onDoubleClick (ClickedEditTodo item) ] [ text item.text ]
             , button
-                [ E.onClick (DeletedTodo { id = item.id })
+                [ E.onClick (DeletedTodo item)
                 , class "destroy"
                 ]
                 []
             ]
-        , input [ class "edit", value "Create a TodoMVC template" ] []
+        , input
+            [ class "edit"
+            , value editingInputValue
+            , E.onInput EditingTodoInput
+            , E.onBlur BlurredEditingInput
+            , onEnter SavedEditingInput
+            , A.id (getEditingInputId item)
+            ]
+            []
         ]
 
 
@@ -198,7 +270,7 @@ viewMain model =
     section [ class "main" ]
         [ input [ class "toggle-all", A.id "toggle-all", type_ "checkbox" ] []
         , label [ A.for "toggle-all" ] [ text "Mark all as complete" ]
-        , ul [ class "todo-list" ] (model.todos |> List.map viewTodoItem)
+        , ul [ class "todo-list" ] (model.todos |> List.map (viewTodoItem model.editingTodo))
         ]
 
 
@@ -263,3 +335,15 @@ onEnter msg =
                     )
     in
     E.custom "keydown" decoder
+
+
+main : Program Flags Model Msg
+main =
+    Browser.application
+        { init = init
+        , view = view
+        , update = update
+        , subscriptions = subscriptions
+        , onUrlRequest = UrlRequested
+        , onUrlChange = UrlChanged
+        }
