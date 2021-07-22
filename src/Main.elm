@@ -3,8 +3,9 @@ module Main exposing (..)
 import Browser
 import Browser.Navigation as Nav
 import Html exposing (..)
-import Html.Attributes as A exposing (checked, class, href, type_, value)
+import Html.Attributes as A exposing (checked, class, classList, href, type_, value)
 import Html.Events as E
+import Json.Decode as Dec
 import Url
 
 
@@ -116,7 +117,7 @@ update msg model =
                 in
                 { model
                     | inputText = ""
-                    , todos = { text = model.inputText, completed = False, id = maxId + 1 } :: model.todos
+                    , todos = model.todos ++ [ { text = model.inputText, completed = False, id = maxId + 1 } ]
                 }
             , Cmd.none
             )
@@ -146,44 +147,58 @@ update msg model =
 
 
 subscriptions : Model -> Sub Msg
-subscriptions model =
+subscriptions _ =
     Sub.none
 
 
-viewHeader : Html msg
-viewHeader =
+
+-- VIEW
+
+
+viewHeader : String -> Html Msg
+viewHeader inputText =
     header [ class "header" ]
         [ h1 [] [ text "todos" ]
-        , input [ A.autofocus True, class "new-todo", A.placeholder "What needs to be done?" ] []
+        , input
+            [ A.autofocus True
+            , class "new-todo"
+            , A.placeholder "What needs to be done?"
+            , value inputText
+            , E.onInput InputText
+            , onEnter SubmittedTodo
+            ]
+            []
         ]
 
 
-viewMain : Html msg
-viewMain =
+viewTodoItem : TodoItem -> Html Msg
+viewTodoItem item =
+    li [ classList [ ( "completed", item.completed ) ] ]
+        [ div [ class "view" ]
+            [ input
+                [ checked item.completed
+                , class "toggle"
+                , type_ "checkbox"
+                , E.onCheck (\_ -> ToggledTodo { id = item.id })
+                ]
+                []
+            , label [] [ text item.text ]
+            , button
+                [ E.onClick (DeletedTodo { id = item.id })
+                , class "destroy"
+                ]
+                []
+            ]
+        , input [ class "edit", value "Create a TodoMVC template" ] []
+        ]
+
+
+viewMain : Model -> Html Msg
+viewMain model =
     section [ class "main" ]
         [ input [ class "toggle-all", A.id "toggle-all", type_ "checkbox" ] []
         , label [ A.for "toggle-all" ] [ text "Mark all as complete" ]
-        , ul [ class "todo-list" ]
-            [ text "\t\t\t\t\t"
-            , li [ class "completed" ]
-                [ div [ class "view" ]
-                    [ input [ checked True, class "toggle", type_ "checkbox" ] []
-                    , label [] [ text "Taste JavaScript" ]
-                    , button [ class "destroy" ] []
-                    ]
-                , input [ class "edit", value "Create a TodoMVC template" ] []
-                ]
-            , li []
-                [ div [ class "view" ]
-                    [ input [ class "toggle", type_ "checkbox" ] []
-                    , label []
-                        [ text "Buy a unicorn" ]
-                    , button [ class "destroy" ] []
-                    ]
-                , input [ class "edit", value "Rule the web" ]
-                    []
-                ]
-            ]
+        , ul [ class "todo-list" ] (model.todos |> List.map viewTodoItem)
         ]
 
 
@@ -208,9 +223,43 @@ view model =
     { title = "Application Title"
     , body =
         [ section [ class "todoapp" ]
-            [ viewHeader
-            , viewMain
-            , viewFooter
+            [ viewHeader model.inputText
+            , case model.todos of
+                [] ->
+                    text ""
+
+                _ ->
+                    viewMain model
+            , case model.todos of
+                [] ->
+                    text ""
+
+                _ ->
+                    viewFooter
             ]
         ]
     }
+
+
+onEnter : msg -> Attribute msg
+onEnter msg =
+    let
+        enterKeyCode =
+            13
+
+        decoder =
+            Dec.field "keyCode" Dec.int
+                |> Dec.andThen
+                    (\keyCode ->
+                        if keyCode == enterKeyCode then
+                            Dec.succeed
+                                { message = msg
+                                , stopPropagation = True
+                                , preventDefault = True
+                                }
+
+                        else
+                            Dec.fail ""
+                    )
+    in
+    E.custom "keydown" decoder
