@@ -41,10 +41,10 @@ type alias Model =
 urlToFilter : Url.Url -> Filter
 urlToFilter url =
     case url.fragment of
-        Just "completed" ->
+        Just "/completed" ->
             Completed
 
-        Just "active" ->
+        Just "/active" ->
             Active
 
         _ ->
@@ -274,17 +274,27 @@ viewMain model =
         ]
 
 
-viewFooter : Html msg
-viewFooter =
+viewFooter : Model -> Html msg
+viewFooter model =
+    let
+        viewFooterItem filter href_ label =
+            li []
+                [ a
+                    [ classList [ ( "selected", filter == model.filter ) ]
+                    , href href_
+                    ]
+                    [ text label ]
+                ]
+    in
     footer [ class "footer" ]
         [ span [ class "todo-count" ]
             [ strong [] [ text "0" ]
             , text "item left"
             ]
         , ul [ class "filters" ]
-            [ li [] [ a [ class "selected", href "#/" ] [ text "All" ] ]
-            , li [] [ a [ href "#/active" ] [ text "Active" ] ]
-            , li [] [ a [ href "#/completed" ] [ text "Completed" ] ]
+            [ viewFooterItem All "#/" "All"
+            , viewFooterItem Active "#/active" "Active"
+            , viewFooterItem Completed "#/completed" "Completed"
             ]
         , button [ class "clear-completed" ] [ text "Clear completed" ]
         ]
@@ -307,7 +317,7 @@ view model =
                     text ""
 
                 _ ->
-                    viewFooter
+                    viewFooter model
             ]
         ]
     }
