@@ -38,6 +38,19 @@ type alias Model =
     }
 
 
+getVisibleTodos : Filter -> List TodoItem -> List TodoItem
+getVisibleTodos filter =
+    case filter of
+        All ->
+            identity
+
+        Completed ->
+            List.filter .completed
+
+        Active ->
+            List.filter (not << .completed)
+
+
 urlToFilter : Url.Url -> Filter
 urlToFilter url =
     case url.fragment of
@@ -78,6 +91,8 @@ type Msg
     | BlurredEditingInput
     | SavedEditingInput
     | InputFocused (Result Browser.Dom.Error ())
+    | ClearCompletedTodos
+    | MarkAllAsCompleted Bool
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -187,6 +202,16 @@ update msg model =
         InputFocused _ ->
             ( model, Cmd.none )
 
+        ClearCompletedTodos ->
+            ( { model | todos = List.filter (not << .completed) model.todos }
+            , Cmd.none
+            )
+
+        MarkAllAsCompleted b ->
+            ( { model | todos = model.todos |> List.map (\todo -> { todo | completed = b }) }
+            , Cmd.none
+            )
+
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
@@ -195,22 +220,6 @@ subscriptions _ =
 
 
 -- VIEW
-
-
-viewHeader : String -> Html Msg
-viewHeader inputText =
-    header [ class "header" ]
-        [ h1 [] [ text "todos" ]
-        , input
-            [ A.autofocus True
-            , class "new-todo"
-            , A.placeholder "What needs to be done?"
-            , value inputText
-            , E.onInput InputText
-            , onEnter SubmittedTodo
-            ]
-            []
-        ]
 
 
 getEditingInputId : TodoItem -> String
@@ -265,59 +274,102 @@ viewTodoItem mEditingTodo item =
         ]
 
 
-viewMain : Model -> Html Msg
-viewMain model =
-    section [ class "main" ]
-        [ input [ class "toggle-all", A.id "toggle-all", type_ "checkbox" ] []
-        , label [ A.for "toggle-all" ] [ text "Mark all as complete" ]
-        , ul [ class "todo-list" ] (model.todos |> List.map (viewTodoItem model.editingTodo))
-        ]
-
-
-viewFooter : Model -> Html msg
-viewFooter model =
-    let
-        viewFooterItem filter href_ label =
-            li []
-                [ a
-                    [ classList [ ( "selected", filter == model.filter ) ]
-                    , href href_
-                    ]
-                    [ text label ]
-                ]
-    in
-    footer [ class "footer" ]
-        [ span [ class "todo-count" ]
-            [ strong [] [ text "0" ]
-            , text "item left"
-            ]
-        , ul [ class "filters" ]
-            [ viewFooterItem All "#/" "All"
-            , viewFooterItem Active "#/active" "Active"
-            , viewFooterItem Completed "#/completed" "Completed"
-            ]
-        , button [ class "clear-completed" ] [ text "Clear completed" ]
-        ]
-
-
 view : Model -> Browser.Document Msg
 view model =
-    { title = "Application Title"
+    { title = "Elm • TodoMVC"
     , body =
+        let
+            activeTodos =
+                List.filter (not << .completed) model.todos
+
+            completedTodos =
+                List.filter .completed model.todos
+
+            itemsLeft =
+                List.length activeTodos
+        in
         [ section [ class "todoapp" ]
-            [ viewHeader model.inputText
+            [ header [ class "header" ]
+                [ h1 [] [ text "todos" ]
+                , input
+                    [ A.autofocus True
+                    , class "new-todo"
+                    , A.placeholder "What needs to be done?"
+                    , value model.inputText
+                    , E.onInput InputText
+                    , onEnter SubmittedTodo
+                    ]
+                    []
+                ]
             , case model.todos of
                 [] ->
                     text ""
 
                 _ ->
-                    viewMain model
+                    section [ class "main" ]
+                        [ input
+                            [ class "toggle-all"
+                            , A.id "toggle-all"
+                            , type_ "checkbox"
+                            , E.onCheck MarkAllAsCompleted
+                            , checked
+                                (case activeTodos of
+                                    [] ->
+                                        True
+
+                                    _ ->
+                                        False
+                                )
+                            ]
+                            []
+                        , label [ A.for "toggle-all" ] [ text "Mark all as complete" ]
+                        , ul [ class "todo-list" ]
+                            (model.todos
+                                |> getVisibleTodos model.filter
+                                |> List.map (viewTodoItem model.editingTodo)
+                            )
+                        ]
             , case model.todos of
                 [] ->
                     text ""
 
                 _ ->
-                    viewFooter model
+                    let
+                        viewFooterItem filter href_ label =
+                            li []
+                                [ a
+                                    [ classList [ ( "selected", filter == model.filter ) ]
+                                    , href href_
+                                    ]
+                                    [ text label ]
+                                ]
+                    in
+                    footer [ class "footer" ]
+                        [ span [ class "todo-count" ]
+                            [ strong [] [ text (String.fromInt itemsLeft) ]
+                            , text " item"
+                            , text
+                                (case itemsLeft of
+                                    1 ->
+                                        ""
+
+                                    _ ->
+                                        "s"
+                                )
+                            , text " left"
+                            ]
+                        , ul [ class "filters" ]
+                            [ viewFooterItem All "#/" "All"
+                            , viewFooterItem Active "#/active" "Active"
+                            , viewFooterItem Completed "#/completed" "Completed"
+                            ]
+                        , case completedTodos of
+                            _ :: _ ->
+                                button [ E.onClick ClearCompletedTodos, class "clear-completed" ] [ text "Clear completed" ]
+
+                            _ ->
+                                text ""
+                        ]
             ]
         ]
     }
